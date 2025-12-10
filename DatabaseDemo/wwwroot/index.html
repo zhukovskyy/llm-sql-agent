@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 LLM SQL Query Agent</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+        .status-unknown { background-color: #6c757d; }
+        
+        .query-section {
+            margin-bottom: 30px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            resize: vertical;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: border-color 0.3s ease;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.25);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            background: linear-gradient(135deg, #0056b3, #004085);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .secondary-btn {
+            background: linear-gradient(135deg, #6c757d, #545b62);
+        }
+        
+        .secondary-btn:hover {
+            background: linear-gradient(135deg, #545b62, #383d41);
+        }
+        
+        .results {
+            margin-top: 30px;
+        }
+        
+        .result-section {
+            margin-bottom: 25px;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        
+        .result-section h3 {
+            margin-top: 0;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        pre {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            border-left: 4px solid #007bff;
+        }
+        
+        .sql-code {
+            background-color: #263238;
+            color: #eeffff;
+            border-left-color: #4fc3f7;
+        }
+        
+        .validation-success {
+            color: #28a745;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .validation-error {
+            color: #dc3545;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .error {
+            color: #721c24;
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #007bff;
+            font-style: italic;
+            padding: 20px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #495057, #6c757d);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tbody tr:hover {
+            background-color: #e3f2fd;
+        }
+        
+        .examples {
+            margin-top: 25px;
+            padding: 20px;
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .example-query {
+            color: #1976d2;
+            cursor: pointer;
+            text-decoration: underline;
+            margin: 8px 0;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+        
+        .example-query:hover {
+            background: #1976d2;
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .schema-section {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+        
+        .copy-btn {
+            float: right;
+            font-size: 12px;
+            padding: 5px 10px;
+            background: #28a745;
+        }
+        
+        .copy-btn:hover {
+            background: #218838;
+        }
+
+        .db-info {
+            background: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .db-info strong {
+            color: #0c5460;
+        }
+
+        .success {
+            color: #155724;
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+
+        .retry-success {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            border-left: 4px solid #28a745;
+        }
+
+        .retry-partial {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border-left: 4px solid #ffc107;
+        }
+
+        .retry-failed {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            border-left: 4px solid #dc3545;
+        }
+
+        details {
+            margin: 10px 0;
+        }
+
+        summary {
+            cursor: pointer;
+            padding: 5px;
+            background: #f1f3f4;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        summary:hover {
+            background: #e8eaed;
+        }
+
+        .error-item {
+            margin: 5px 0;
+            padding: 8px;
+            background: #fff;
+            border-left: 3px solid #dc3545;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 LLM SQL Query Agent</h1>
+        
+        <div class="db-info">
+            <strong>Connected to:</strong> database on testapi.tanktoad.com:1435
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-indicator">
+                <span class="status-dot status-unknown" id="dbStatus"></span>
+                <span>Database: <span id="dbStatusText">Checking...</span></span>
+            </div>
+            <div>
+                <button class="secondary-btn" onclick="initializeDatabase()" style="background: linear-gradient(135deg, #dc3545, #c82333); color: white;">🔄 Initialize DB</button>
+                <button class="secondary-btn" onclick="loadSchema()">🔍 Load Schema</button>
+                <button class="secondary-btn" onclick="checkHealth()">🏥 Health Check</button>
+            </div>
+        </div>
+        
+        <div class="query-section">
+            <label for="queryInput">Enter your natural language query:</label>
+            <textarea 
+                id="queryInput" 
+                rows="4" 
+                placeholder="e.g., show all users who have more than 5 orders, find customers from Kyiv, list all products with low stock"
+            ></textarea>
+            <div class="button-group">
+                <button onclick="submitQuery()">🚀 Execute Query</button>
+                <button class="secondary-btn" onclick="clearResults()">🧹 Clear</button>
+            </div>
+        </div>
+        
+        <div class="examples">
+            <h3>💡 Test Queries by Complexity Level:</h3>
+            
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #28a745; margin: 10px 0 5px 0;">📊 Level 1 - Simple Single-Table Queries</h4>
+                <div class="example-query" onclick="setQuery('List all employees working in the Logistics department')">
+                    List all employees working in the Logistics department
+                </div>
+                <div class="example-query" onclick="setQuery('Show all inventory items that have less than 20 units in stock')">
+                    Show all inventory items that have less than 20 units in stock
+                </div>
+                <div class="example-query" onclick="setQuery('Find all technicians in the maintenance department')">
+                    Find all technicians in the maintenance department
+                </div>
+                <div class="example-query" onclick="setQuery('Show all employees with their RFID tags')">
+                    Show all employees with their RFID tags
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #17a2b8; margin: 10px 0 5px 0;">🔗 Level 2 - Moderate Multi-Table Queries</h4>
+                <div class="example-query" onclick="setQuery('Show me the names of employees who last updated any inventory item')">
+                    Show me the names of employees who last updated any inventory item
+                </div>
+                <div class="example-query" onclick="setQuery('Which technicians performed maintenance in the last 7 days? List their names and the vehicle plates')">
+                    Which technicians performed maintenance in the last 7 days? List their names and the vehicle plates
+                </div>
+                <div class="example-query" onclick="setQuery('Show inventory items with the names of employees who last updated them')">
+                    Show inventory items with the names of employees who last updated them
+                </div>
+                <div class="example-query" onclick="setQuery('List all maintenance operations with technician details')">
+                    List all maintenance operations with technician details
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #6f42c1; margin: 10px 0 5px 0;">🧩 Level 3 - Complex Multi-Relation + Business Logic</h4>
+                <div class="example-query" onclick="setQuery('List all employees whose RFID tag was used in either an inventory update or a vehicle maintenance operation')">
+                    List all employees whose RFID tag was used in either an inventory update or a vehicle maintenance operation
+                </div>
+                <div class="example-query" onclick="setQuery('Show employees who updated inventory items AND also performed vehicle maintenance')">
+                    Show employees who updated inventory items AND also performed vehicle maintenance
+                </div>
+                <div class="example-query" onclick="setQuery('Find the most active employees based on both inventory updates and maintenance operations')">
+                    Find the most active employees based on both inventory updates and maintenance operations
+                </div>
+                <div class="example-query" onclick="setQuery('Show which departments have employees involved in vehicle maintenance')">
+                    Show which departments have employees involved in vehicle maintenance
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #fd7e14; margin: 10px 0 5px 0;">📈 Level 4 - Aggregation & Analytics</h4>
+                <div class="example-query" onclick="setQuery('Show each employee with the total number of inventory updates they made and total maintenance operations performed')">
+                    Show each employee with the total number of inventory updates they made and total maintenance operations performed
+                </div>
+                <div class="example-query" onclick="setQuery('Which vehicles require the most maintenance? Show maintenance count by vehicle plate')">
+                    Which vehicles require the most maintenance? Show maintenance count by vehicle plate
+                </div>
+                <div class="example-query" onclick="setQuery('Show inventory items that need restocking grouped by item category')">
+                    Show inventory items that need restocking grouped by item category
+                </div>
+                <div class="example-query" onclick="setQuery('Calculate average stock quantity across all inventory items')">
+                    Calculate average stock quantity across all inventory items
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #dc3545; margin: 10px 0 5px 0;">❌ Dangerous Queries (Will be Blocked)</h4>
+                <div class="example-query" onclick="setQuery('delete all employees from the database')" style="background: #f8d7da; border-left: 4px solid #dc3545;">
+                    delete all employees from the database
+                </div>
+                <div class="example-query" onclick="setQuery('remove all inventory items permanently')" style="background: #f8d7da; border-left: 4px solid #dc3545;">
+                    remove all inventory items permanently
+                </div>
+                <div class="example-query" onclick="setQuery('update all stock quantities to zero')" style="background: #f8d7da; border-left: 4px solid #dc3545;">
+                    update all stock quantities to zero
+                </div>
+                <div class="example-query" onclick="setQuery('create a new admin employee with full access')" style="background: #f8d7da; border-left: 4px solid #dc3545;">
+                    create a new admin employee with full access
+                </div>
+                <div class="example-query" onclick="setQuery('drop all maintenance logs')" style="background: #f8d7da; border-left: 4px solid #dc3545;">
+                    drop all maintenance logs
+                </div>
+            </div>
+        </div>
+        
+        <div id="results" class="results" style="display: none;">
+            <div class="result-section">
+                <h3>📝 Original Query</h3>
+                <p id="originalQuery"></p>
+            </div>
+            
+            <div class="result-section">
+                <h3>🔍 Generated SQL</h3>
+                <button class="copy-btn" onclick="copyToClipboard('generatedSql')">📋 Copy</button>
+                <pre id="generatedSql" class="sql-code"></pre>
+            </div>
+            
+            <div class="result-section">
+                <h3>🛡️ Security Validation</h3>
+                <p id="validationResult"></p>
+            </div>
+            
+            <div class="result-section">
+                <h3>📊 Query Results</h3>
+                <div id="executionResult"></div>
+            </div>
+            
+            <div class="result-section">
+                <h3>💬 Natural Language Answer</h3>
+                <p id="finalAnswer"></p>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            ⏳ Processing your query...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="success" class="success" style="display: none;"></div>
+        
+        <div id="schema" class="result-section" style="display: none;">
+            <h3>📋 Database Schema</h3>
+            <div id="schemaContent" class="schema-section"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check health on page load
+        window.addEventListener('load', checkHealth);
+        
+        function setQuery(query) {
+            document.getElementById('queryInput').value = query;
+        }
+        
+        async function checkHealth() {
+            try {
+                console.log('🏥 Checking database health...');
+                const response = await fetch('/health');
+                console.log('Health response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('✅ Health response data:', data);
+                
+                const statusDot = document.getElementById('dbStatus');
+                const statusText = document.getElementById('dbStatusText');
+                
+                // Check for successful connection - handle both cases (uppercase and lowercase)
+                const database = data.Database || data.database;
+                const status = data.Status !== undefined ? data.Status : data.status;
+                
+                if (status === true || database === 'Connected') {
+                    statusDot.className = 'status-dot status-connected';
+                    statusText.textContent = 'Connected ✅';
+                    console.log('✅ Database is connected successfully');
+                    showSuccess('✅ Database connection verified successfully!');
+                } 
+                // Check for connection failure
+                else if (status === false || database === 'Disconnected') {
+                    statusDot.className = 'status-dot status-disconnected';
+                    statusText.textContent = 'Disconnected ❌';
+                    console.log('❌ Database is disconnected');
+                    showError('❌ Database connection failed');
+                }
+                // Check for errors
+                else if (database === 'Error') {
+                    statusDot.className = 'status-dot status-disconnected';
+                    statusText.textContent = 'Database Error ❌';
+                    const errorMsg = data.Error || data.error;
+                    console.error('Database error details:', errorMsg);
+                    showError(`❌ Database connection error: ${errorMsg}`);
+                }
+                // Fallback case
+                else {
+                    statusDot.className = 'status-dot status-connected';
+                    statusText.textContent = 'Connected ✅';
+                    console.log('✅ Assuming connected (fallback case)');
+                    showSuccess('✅ Database connection assumed healthy');
+                }
+            } catch (error) {
+                console.error('❌ Health check failed:', error);
+                const statusDot = document.getElementById('dbStatus');
+                const statusText = document.getElementById('dbStatusText');
+                statusDot.className = 'status-dot status-disconnected';
+                statusText.textContent = 'Connection Failed ❌';
+                showError(`❌ Health check failed: ${error.message}`);
+            }
+        }
+        
+        async function loadSchema() {
+            try {
+                console.log('🔍 Loading database schema...');
+                hideMessages();
+                
+                // Show loading state for schema
+                const schemaSection = document.getElementById('schema');
+                const schemaContent = document.getElementById('schemaContent');
+                schemaContent.textContent = 'Loading schema...';
+                schemaSection.style.display = 'block';
+                
+                const response = await fetch('/schema', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                console.log('Schema response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('✅ Full schema response object:', data);
+                console.log('✅ Schema field exists:', 'Schema' in data);
+                console.log('✅ Schema data type:', typeof data.Schema);
+                console.log('✅ Schema data length:', data.Schema ? data.Schema.length : 'null/undefined');
+                console.log('✅ Raw schema preview:', data.Schema ? data.Schema.substring(0, 300) : 'No schema');
+                
+                // Check both uppercase and lowercase 'schema' key
+                const schemaData = data.Schema || data.schema;
+                
+                if (schemaData && schemaData.length > 0) {
+                    schemaContent.textContent = schemaData;
+                    schemaSection.style.display = 'block';
+                    
+                    const tableCount = (schemaData.match(/\[TABLE\]/g) || []).length;
+                    showSuccess(`✅ Database schema loaded successfully! Found ${tableCount} tables (${schemaData.length} characters)`);
+                    
+                    // Scroll to schema section
+                    setTimeout(() => {
+                        schemaSection.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                } else if (data.Error || data.error) {
+                    const errorMsg = data.Error || data.error;
+                    schemaContent.textContent = `Error: ${errorMsg}`;
+                    showError(`❌ Server error: ${errorMsg}`);
+                } else {
+                    // Debug: show what we actually received
+                    schemaContent.textContent = `Debug: Received data: ${JSON.stringify(data, null, 2)}`;
+                    showError(`❌ Schema data is empty or invalid. Check console for details.`);
+                    console.error('Schema response debugging:', {
+                        hasSchema: 'Schema' in data,
+                        schemaType: typeof data.Schema,
+                        schemaValue: data.Schema,
+                        allKeys: Object.keys(data),
+                        fullResponse: data
+                    });
+                }
+            } catch (error) {
+                console.error('❌ Schema load error:', error);
+                const schemaSection = document.getElementById('schema');
+                const schemaContent = document.getElementById('schemaContent');
+                schemaContent.textContent = `Error loading schema: ${error.message}`;
+                schemaSection.style.display = 'block';
+                showError(`❌ Failed to load schema: ${error.message}`);
+            }
+        }
+        
+        async function submitQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            console.log('Submitting query with retry agent:', query);
+            
+            // Show enhanced loading with retry information
+            const loadingDiv = document.getElementById('loading');
+            loadingDiv.innerHTML = `
+                <div class="spinner"></div>
+                🤖 AI Agent processing your query...<br>
+                <small style="color: #666; margin-top: 10px; display: block;">
+                    Agent will automatically retry up to 4 times if errors occur
+                </small>
+            `;
+            loadingDiv.style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            hideMessages();
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                console.log('Chat response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Chat data with retry info:', data);
+                
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.errorMessage) {
+                    showError(`Agent failed: ${data.errorMessage}`);
+                    return;
+                }
+                
+                // Display results with retry information
+                displayResults(data);
+                
+                // Show success message if retry was used
+                if (data.attemptCount > 1) {
+                    showSuccess(`🎯 Smart Agent recovered after ${data.attemptCount} attempts!`);
+                }
+                
+            } catch (error) {
+                console.error('Query execution error:', error);
+                document.getElementById('loading').style.display = 'none';
+                showError(`Network error: ${error.message}`);
+            }
+        }
+        
+        function displayResults(data) {
+            // Додаємо інформацію про retry спроби якщо було більше 1 спроби
+            if (data.attemptCount && data.attemptCount > 1) {
+                const retryInfo = document.createElement('div');
+                retryInfo.className = 'result-section';
+                retryInfo.style.background = data.isRetrySuccess ? 
+                    'linear-gradient(135deg, #d4edda, #c3e6cb)' : 
+                    'linear-gradient(135deg, #f8d7da, #f5c6cb)';
+                retryInfo.innerHTML = `
+                    <h3>🔄 Agent Retry Information</h3>
+                    <div style="margin-bottom: 10px;">
+                        <strong>Success on attempt:</strong> ${data.attemptCount}/4
+                        ${data.totalProcessingTime ? `<br><strong>Total processing time:</strong> ${Math.round(data.totalProcessingTime / 1000)}s` : ''}
+                        ${data.isRetrySuccess ? '<br><span style="color: #28a745;">✅ Agent successfully recovered from errors</span>' : ''}
+                    </div>
+                    <details style="margin-top: 10px;">
+                        <summary style="cursor: pointer; font-weight: bold; color: #495057;">
+                            📋 Error Learning History (${data.errors ? data.errors.length : 0} errors)
+                        </summary>
+                        <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                            ${data.errors && data.errors.length > 0 ? 
+                                data.errors.map((error, index) => 
+                                    `<div style="margin-bottom: 8px; padding: 5px; border-left: 3px solid #dc3545;">
+                                        <strong>Error ${index + 1}:</strong> ${error}
+                                    </div>`
+                                ).join('') : 
+                                'No errors recorded'
+                            }
+                        </div>
+                    </details>
+                `;
+                
+                // Вставляємо retry інформацію перед оригінальним запитом
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.insertBefore(retryInfo, resultsDiv.firstChild);
+            }
+            
+            document.getElementById('originalQuery').textContent = data.originalQuery;
+            document.getElementById('generatedSql').textContent = data.generatedSql;
+            
+            const validationElement = document.getElementById('validationResult');
+            if (data.isSqlValid) {
+                validationElement.innerHTML = `<span class="validation-success">✅ ${data.validationMessage}</span>`;
+            } else {
+                validationElement.innerHTML = `<span class="validation-error">❌ ${data.validationMessage}</span>`;
+            }
+            
+            const executionElement = document.getElementById('executionResult');
+            if (data.executionResult && data.executionResult.length > 0) {
+                executionElement.innerHTML = createTable(data.executionResult);
+            } else if (data.isSqlValid) {
+                executionElement.innerHTML = '<p>📭 No results found</p>';
+            } else {
+                executionElement.innerHTML = '<p>⚠️ Query not executed due to validation failure</p>';
+            }
+            
+            document.getElementById('finalAnswer').textContent = data.finalAnswer;
+            document.getElementById('results').style.display = 'block';
+            
+            // Scroll to results
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function createTable(data) {
+            if (!data || data.length === 0) {
+                return '<p>📭 No data to display</p>';
+            }
+            
+            const headers = Object.keys(data[0]);
+            let html = '<table><thead><tr>';
+            
+            headers.forEach(header => {
+                html += `<th>${escapeHtml(header)}</th>`;
+            });
+            
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    const value = row[header];
+                    html += `<td>${escapeHtml(value !== null ? String(value) : 'NULL')}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            return html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showError(message) {
+            hideMessages();
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+        
+        function showSuccess(message) {
+            hideMessages();
+            document.getElementById('success').textContent = message;
+            document.getElementById('success').style.display = 'block';
+        }
+        
+        function hideMessages() {
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('success').style.display = 'none';
+        }
+        
+        function clearResults() {
+            document.getElementById('queryInput').value = '';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('schema').style.display = 'none';
+            hideMessages();
+        }
+        
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Temporary visual feedback
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+        
+        async function initializeDatabase() {
+            if (!confirm('⚠️ WARNING! This will DROP all existing tables and recreate them with test data.\n\nAre you absolutely sure you want to continue?')) {
+                return;
+            }
+            
+            if (!confirm('🚨 FINAL CONFIRMATION! All existing data will be PERMANENTLY DELETED!\n\nClick OK to proceed or Cancel to abort.')) {
+                return;
+            }
+            
+            try {
+                document.getElementById('loading').style.display = 'block';
+                hideMessages();
+                
+                const response = await fetch('http://localhost:5165/api/init-database', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    // Refresh health status
+                    await checkHealth();
+                } else {
+                    showError(data.message);
+                }
+                
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                showError(`Network error: ${error.message}`);
+            }
+        }
+        
+        // Allow Enter key to submit (Shift+Enter for new line)
+        document.getElementById('queryInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    </script>
+</body>
+</html>

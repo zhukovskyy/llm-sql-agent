@@ -1,0 +1,6 @@
+@DatabaseDemo_HostAddress = http://localhost:5165
+
+GET {{DatabaseDemo_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

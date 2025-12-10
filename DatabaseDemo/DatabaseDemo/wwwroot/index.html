@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>?? LLM SQL Query Agent</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+        .status-unknown { background-color: #6c757d; }
+        
+        .query-section {
+            margin-bottom: 30px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            resize: vertical;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: border-color 0.3s ease;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.25);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            background: linear-gradient(135deg, #0056b3, #004085);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .secondary-btn {
+            background: linear-gradient(135deg, #6c757d, #545b62);
+        }
+        
+        .secondary-btn:hover {
+            background: linear-gradient(135deg, #545b62, #383d41);
+        }
+        
+        .results {
+            margin-top: 30px;
+        }
+        
+        .result-section {
+            margin-bottom: 25px;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        
+        .result-section h3 {
+            margin-top: 0;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        pre {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            border-left: 4px solid #007bff;
+        }
+        
+        .sql-code {
+            background-color: #263238;
+            color: #eeffff;
+            border-left-color: #4fc3f7;
+        }
+        
+        .validation-success {
+            color: #28a745;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .validation-error {
+            color: #dc3545;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .error {
+            color: #721c24;
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #007bff;
+            font-style: italic;
+            padding: 20px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #495057, #6c757d);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tbody tr:hover {
+            background-color: #e3f2fd;
+        }
+        
+        .examples {
+            margin-top: 25px;
+            padding: 20px;
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .example-query {
+            color: #1976d2;
+            cursor: pointer;
+            text-decoration: underline;
+            margin: 8px 0;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+        
+        .example-query:hover {
+            background: #1976d2;
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .schema-section {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        
+        .copy-btn {
+            float: right;
+            font-size: 12px;
+            padding: 5px 10px;
+            background: #28a745;
+        }
+        
+        .copy-btn:hover {
+            background: #218838;
+        }
+
+        .db-info {
+            background: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .db-info strong {
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>?? LLM SQL Query Agent</h1>
+        
+        <div class="db-info">
+            <strong>Connected to:</strong> database on testapi.tanktoad.com:1435
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-indicator">
+                <span class="status-dot status-unknown" id="dbStatus"></span>
+                <span>Database: <span id="dbStatusText">Checking...</span></span>
+            </div>
+            <div>
+                <button class="secondary-btn" onclick="loadSchema()">?? Load Schema</button>
+                <button class="secondary-btn" onclick="checkHealth()">?? Health Check</button>
+            </div>
+        </div>
+        
+        <div class="query-section">
+            <label for="queryInput">Enter your natural language query:</label>
+            <textarea 
+                id="queryInput" 
+                rows="4" 
+                placeholder="e.g., show all users who have more than 5 orders, find customers from Kyiv, list all products with low stock"
+            ></textarea>
+            <div class="button-group">
+                <button onclick="submitQuery()">?? Execute Query</button>
+                <button class="secondary-btn" onclick="clearResults()">?? Clear</button>
+            </div>
+        </div>
+        
+        <div class="examples">
+            <h3>?? Example Queries:</h3>
+            <div class="example-query" onclick="setQuery('show all tables in the database')">
+                show all tables in the database
+            </div>
+            <div class="example-query" onclick="setQuery('find top 10 records with highest values')">
+                find top 10 records with highest values
+            </div>
+            <div class="example-query" onclick="setQuery('show record count for each table')">
+                show record count for each table
+            </div>
+            <div class="example-query" onclick="setQuery('find duplicate entries')">
+                find duplicate entries
+            </div>
+            <div class="example-query" onclick="setQuery('show users created in the last 30 days')">
+                show users created in the last 30 days
+            </div>
+            <div class="example-query" onclick="setQuery('find customers with no orders')">
+                find customers with no orders
+            </div>
+        </div>
+        
+        <div id="results" class="results" style="display: none;">
+            <div class="result-section">
+                <h3>?? Original Query</h3>
+                <p id="originalQuery"></p>
+            </div>
+            
+            <div class="result-section">
+                <h3>?? Generated SQL</h3>
+                <button class="copy-btn" onclick="copyToClipboard('generatedSql')">?? Copy</button>
+                <pre id="generatedSql" class="sql-code"></pre>
+            </div>
+            
+            <div class="result-section">
+                <h3>??? Security Validation</h3>
+                <p id="validationResult"></p>
+            </div>
+            
+            <div class="result-section">
+                <h3>?? Query Results</h3>
+                <div id="executionResult"></div>
+            </div>
+            
+            <div class="result-section">
+                <h3>?? Natural Language Answer</h3>
+                <p id="finalAnswer"></p>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            ? Processing your query...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="schema" class="result-section" style="display: none;">
+            <h3>?? Database Schema</h3>
+            <div id="schemaContent" class="schema-section"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check health on page load
+        window.addEventListener('load', checkHealth);
+        
+        function setQuery(query) {
+            document.getElementById('queryInput').value = query;
+        }
+        
+        async function checkHealth() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                const statusDot = document.getElementById('dbStatus');
+                const statusText = document.getElementById('dbStatusText');
+                
+                if (data.Database === 'Connected') {
+                    statusDot.className = 'status-dot status-connected';
+                    statusText.textContent = 'Connected ?';
+                } else {
+                    statusDot.className = 'status-dot status-disconnected';
+                    statusText.textContent = 'Disconnected ?';
+                }
+            } catch (error) {
+                const statusDot = document.getElementById('dbStatus');
+                const statusText = document.getElementById('dbStatusText');
+                statusDot.className = 'status-dot status-disconnected';
+                statusText.textContent = 'Error ?';
+            }
+        }
+        
+        async function loadSchema() {
+            try {
+                const response = await fetch('/schema');
+                const data = await response.json();
+                
+                const schemaSection = document.getElementById('schema');
+                const schemaContent = document.getElementById('schemaContent');
+                
+                if (data.Schema) {
+                    schemaContent.textContent = data.Schema;
+                    schemaSection.style.display = 'block';
+                } else {
+                    showError('Unable to load database schema');
+                }
+            } catch (error) {
+                showError(`Failed to load schema: ${error.message}`);
+            }
+        }
+        
+        async function submitQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            // Show loading, hide results and error
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.errorMessage) {
+                    showError(`Error: ${data.errorMessage}`);
+                    return;
+                }
+                
+                // Display results
+                displayResults(data);
+                
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                showError(`Network error: ${error.message}`);
+            }
+        }
+        
+        function displayResults(data) {
+            document.getElementById('originalQuery').textContent = data.originalQuery;
+            document.getElementById('generatedSql').textContent = data.generatedSql;
+            
+            const validationElement = document.getElementById('validationResult');
+            if (data.isSqlValid) {
+                validationElement.innerHTML = `<span class="validation-success">? ${data.validationMessage}</span>`;
+            } else {
+                validationElement.innerHTML = `<span class="validation-error">? ${data.validationMessage}</span>`;
+            }
+            
+            const executionElement = document.getElementById('executionResult');
+            if (data.executionResult && data.executionResult.length > 0) {
+                executionElement.innerHTML = createTable(data.executionResult);
+            } else if (data.isSqlValid) {
+                executionElement.innerHTML = '<p>?? No results found</p>';
+            } else {
+                executionElement.innerHTML = '<p>?? Query not executed due to validation failure</p>';
+            }
+            
+            document.getElementById('finalAnswer').textContent = data.finalAnswer;
+            document.getElementById('results').style.display = 'block';
+        }
+        
+        function createTable(data) {
+            if (!data || data.length === 0) {
+                return '<p>?? No data to display</p>';
+            }
+            
+            const headers = Object.keys(data[0]);
+            let html = '<table><thead><tr>';
+            
+            headers.forEach(header => {
+                html += `<th>${escapeHtml(header)}</th>`;
+            });
+            
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    const value = row[header];
+                    html += `<td>${escapeHtml(value !== null ? String(value) : 'NULL')}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            return html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+        
+        function clearResults() {
+            document.getElementById('queryInput').value = '';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('schema').style.display = 'none';
+        }
+        
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Temporary visual feedback
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '? Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+        
+        // Allow Enter key to submit (Shift+Enter for new line)
+        document.getElementById('queryInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    </script>
+</body>
+</html>
