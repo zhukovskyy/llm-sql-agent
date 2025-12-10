@@ -231,3 +231,4 @@ secrets.json
 
 # GitHub secrets setup file (contains actual values)
 GITHUB_SECRETS_SETUP.md
+QUICK_SETUP_UA.md
