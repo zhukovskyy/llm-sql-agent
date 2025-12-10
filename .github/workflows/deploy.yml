@@ -1,0 +1,83 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: 📝 Create appsettings.json
+      working-directory: ./DatabaseDemo
+      run: |
+        $appsettings = @"
+        {
+          "Logging": {
+            "LogLevel": {
+              "Default": "Warning",
+              "Microsoft.AspNetCore": "Warning",
+              "System.Net.Http.HttpClient": "Warning"
+            }
+          },
+          "AllowedHosts": "bai.a95.biz;*.a95.biz",
+          "ConnectionStrings": {
+            "DefaultConnection": "${{ secrets.DATABASE_CONNECTION_STRING }}"
+          },
+          "OpenAI": {
+            "ApiKey": "${{ secrets.OPENAI_API_KEY }}"
+          },
+          "Database": {
+            "Schema": "Database schema will be auto-detected from your database"
+          }
+        }
+        "@
+        $appsettings | Out-File -FilePath "appsettings.json" -Encoding UTF8
+        $appsettings | Out-File -FilePath "appsettings.Production.json" -Encoding UTF8
+        Write-Host "✅ appsettings.json created successfully"
+    
+    - name: 📦 Restore dependencies
+      working-directory: ./DatabaseDemo
+      run: dotnet restore
+    
+    - name: 🔨 Build
+      working-directory: ./DatabaseDemo
+      run: dotnet build --configuration Release --no-restore
+    
+    - name: 🧪 Test
+      working-directory: ./DatabaseDemo
+      run: dotnet test --no-restore --verbosity normal
+      continue-on-error: true
+    
+    - name: 🚀 Publish
+      working-directory: ./DatabaseDemo
+      run: dotnet publish --configuration Release --no-build --output ./publish
+    
+    - name: 🌐 Deploy to IIS via Web Deploy
+      working-directory: ./DatabaseDemo
+      run: |
+        dotnet publish `
+          /p:PublishProfile=BAI-A95 `
+          /p:Configuration=Release `
+          /p:Password="${{ secrets.DEPLOY_PASSWORD }}" `
+          /p:AllowUntrustedCertificate=true
+      env:
+        MSDEPLOYUSERNAME: ${{ secrets.DEPLOY_USERNAME }}
+    
+    - name: ✅ Deployment Complete
+      run: |
+        Write-Host "🎉 Deployment completed successfully!"
+        Write-Host "🌐 Site URL: http://bai.a95.biz:80/"
