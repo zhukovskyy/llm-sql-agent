@@ -10,10 +10,12 @@ namespace DatabaseDemo.Models
         public string FinalAnswer { get; set; } = string.Empty;
         public string? ErrorMessage { get; set; }
         
-        // Нові поля для retry логіки
+        // пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ retry пїЅпїЅпїЅпїЅпїЅ
         public int AttemptCount { get; set; } = 1;
         public List<string> Errors { get; set; } = new();
         public bool IsRetrySuccess => AttemptCount > 1 && string.IsNullOrEmpty(ErrorMessage);
         public TimeSpan TotalProcessingTime { get; set; }
+        public bool IsAgentMode { get; set; }
+        public string ReasoningTrace { get; set; } = string.Empty;
     }
 }

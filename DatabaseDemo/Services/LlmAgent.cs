@@ -11,16 +11,202 @@ namespace DatabaseDemo.Services
         private readonly IConfiguration _configuration;
         private readonly string _apiKey;
         private readonly ILogger<LlmAgent> _logger;
+        private readonly SqlExecutor _sqlExecutor;
+        private readonly SqlSandbox _sqlSandbox;
 
-        public LlmAgent(HttpClient httpClient, IConfiguration configuration, ILogger<LlmAgent> logger)
+        public LlmAgent(HttpClient httpClient, IConfiguration configuration, ILogger<LlmAgent> logger, SqlExecutor sqlExecutor, SqlSandbox sqlSandbox)
         {
             _httpClient = httpClient;
             _configuration = configuration;
             _logger = logger;
+            _sqlExecutor = sqlExecutor;
+            _sqlSandbox = sqlSandbox;
             _apiKey = _configuration["OpenAI:ApiKey"] ?? throw new InvalidOperationException("OpenAI API key not configured");
             
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+        }
+
+        public async Task<ChatResponse> RunReActLoopAsync(string userQuery)
+        {
+            var response = new ChatResponse { OriginalQuery = userQuery, IsAgentMode = true };
+            var history = new StringBuilder();
+            var maxSteps = 10;
+            var currentStep = 0;
+            var reasoningTrace = new StringBuilder();
+
+            history.AppendLine("You are a smart SQL Agent. You have access to the following tools:");
+            history.AppendLine("- list_tables(): Returns a list of all tables in the database.");
+            history.AppendLine("- get_schema(table_names): Returns the schema for the specified tables (comma separated).");
+            history.AppendLine("- run_sql(query): Executes a SQL query and returns the results (JSON format).");
+            history.AppendLine("");
+            history.AppendLine("Use the following format:");
+            history.AppendLine("Question: the input question");
+            history.AppendLine("Thought: you should always think about what to do");
+            history.AppendLine("Action: the action to take, should be one of [list_tables, get_schema, run_sql]");
+            history.AppendLine("Action Input: the input to the action");
+            history.AppendLine("Observation: the result of the action");
+            history.AppendLine("... (this Thought/Action/Action Input/Observation can repeat N times)");
+            history.AppendLine("Thought: I now know the final answer");
+            history.AppendLine("Final Answer: the final answer to the original input question");
+            history.AppendLine("");
+            history.AppendLine($"Question: {userQuery}");
+
+            while (currentStep < maxSteps)
+            {
+                currentStep++;
+                var prompt = history.ToString();
+                
+                // Call OpenAI
+                var completion = await GetCompletionAsync(prompt);
+                reasoningTrace.AppendLine(completion);
+                history.AppendLine(completion);
+
+                // Parse Action
+                if (completion.Contains("Final Answer:"))
+                {
+                    response.FinalAnswer = ExtractFinalAnswer(completion);
+                    response.ReasoningTrace = reasoningTrace.ToString();
+                    _logger.LogInformation("ReAct loop completed. Trace length: {Length}", response.ReasoningTrace.Length);
+                    return response;
+                }
+
+                var actionMatch = Regex.Match(completion, @"Action:\s*(.+?)\r?\nAction Input:\s*(.+)", RegexOptions.Singleline);
+                if (actionMatch.Success)
+                {
+                    var action = actionMatch.Groups[1].Value.Trim();
+                    var input = actionMatch.Groups[2].Value.Trim();
+                    
+                    string observation = "";
+                    try 
+                    {
+                        if (action == "list_tables")
+                        {
+                            var schema = await _sqlExecutor.GetDatabaseSchemaAsync();
+                            var tables = ExtractTableNames(schema); // Reuse existing method
+                            observation = string.Join(", ", tables);
+                        }
+                        else if (action == "get_schema")
+                        {
+                            // For now, just return the full schema as we don't have granular schema fetch yet
+                            // Or we can filter the full schema string
+                            var fullSchema = await _sqlExecutor.GetDatabaseSchemaAsync();
+                            observation = FilterSchemaForTables(fullSchema, input);
+                        }
+                        else if (action == "run_sql")
+                        {
+                            // Clean SQL
+                            input = CleanSqlResponse(input);
+                            var (isValid, msg) = _sqlSandbox.ValidateQuery(input);
+                            if (!isValid)
+                            {
+                                observation = $"Error: Query validation failed. {msg}";
+                            }
+                            else
+                            {
+                                var result = await _sqlExecutor.ExecuteQueryAsync(input);
+                                observation = JsonConvert.SerializeObject(result);
+                                // Truncate if too long
+                                if (observation.Length > 2000) observation = observation.Substring(0, 2000) + "... (truncated)";
+                            }
+                        }
+                        else
+                        {
+                            observation = $"Error: Unknown action '{action}'";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        observation = $"Error: {ex.Message}";
+                    }
+
+                    var observationBlock = $"\nObservation: {observation}\n";
+                    history.Append(observationBlock);
+                    reasoningTrace.Append(observationBlock);
+                }
+                else
+                {
+                    // If no action found but no final answer, maybe it's just thinking or malformed.
+                    // Force it to continue or stop.
+                    if (!completion.Contains("Thought:"))
+                    {
+                         history.AppendLine("\nObservation: Invalid format. Please use Thought, Action, Action Input.");
+                    }
+                }
+            }
+
+            response.FinalAnswer = "Agent timed out after maximum steps.";
+            response.ReasoningTrace = reasoningTrace.ToString();
+            _logger.LogWarning("ReAct loop timed out. Trace length: {Length}", response.ReasoningTrace.Length);
+            return response;
+        }
+
+        private string ExtractFinalAnswer(string text)
+        {
+            var match = Regex.Match(text, @"Final Answer:\s*(.+)", RegexOptions.Singleline);
+            return match.Success ? match.Groups[1].Value.Trim() : text;
+        }
+
+        private string FilterSchemaForTables(string fullSchema, string tableNamesInput)
+        {
+            var requestedTables = tableNamesInput.Split(',').Select(t => t.Trim()).ToList();
+            var lines = fullSchema.Split('\n');
+            var result = new StringBuilder();
+            bool printing = false;
+            
+            // Simple parser for the schema format we have
+            // Assuming schema format: [TABLE] TableName ... columns ...
+            
+            string currentTable = "";
+            
+            foreach (var line in lines)
+            {
+                if (line.Contains("[TABLE]"))
+                {
+                    var match = Regex.Match(line, @"\[TABLE\]\s+(\w+)");
+                    if (match.Success)
+                    {
+                        currentTable = match.Groups[1].Value;
+                        printing = requestedTables.Any(t => t.Equals(currentTable, StringComparison.OrdinalIgnoreCase));
+                    }
+                }
+                
+                if (printing)
+                {
+                    result.AppendLine(line);
+                }
+            }
+            
+            return result.Length > 0 ? result.ToString() : "No matching tables found in schema.";
+        }
+
+        private async Task<string> GetCompletionAsync(string prompt)
+        {
+             var requestBody = new
+                {
+                    model = "gpt-4o", // Use smart model for agent
+                    messages = new[]
+                    {
+                        new { role = "system", content = "You are a helpful SQL agent." },
+                        new { role = "user", content = prompt }
+                    },
+                    temperature = 0,
+                    stop = new[] { "Observation:" } // Stop generating at Observation so we can insert it
+                };
+
+                var json = JsonConvert.SerializeObject(requestBody);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                
+                var response = await _httpClient.PostAsync("https://api.openai.com/v1/chat/completions", content);
+                var responseContent = await response.Content.ReadAsStringAsync();
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception($"OpenAI API error: {response.StatusCode}");
+                }
+                
+                var openAIResponse = JsonConvert.DeserializeObject<dynamic>(responseContent);
+                return openAIResponse?.choices?[0]?.message?.content?.ToString() ?? "";
         }
 
         public async Task<string> GenerateSqlQueryAsync(string naturalLanguageQuery)
@@ -355,13 +541,13 @@ Please provide a brief, insightful summary of these results.";
                     _logger.LogInformation("Retry Agent - Attempt {Attempt}/{MaxAttempts} for query: {Query}", 
                         attempt, maxAttempts, naturalLanguageQuery);
 
-                    // Генеруємо SQL з урахуванням попередніх помилок
+                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ SQL пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                     var sql = await GenerateSqlWithErrorContext(naturalLanguageQuery, errorHistory, attempt);
                     response.GeneratedSql = sql;
                     
                     _logger.LogInformation("Attempt {Attempt} generated SQL: {SQL}", attempt, sql);
 
-                    // Реальна валідація з SqlSandbox
+                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ SqlSandbox
                     var (isValid, validationMessage) = sqlSandbox.ValidateQuery(sql);
                     if (!isValid)
                     {
@@ -371,13 +557,13 @@ Please provide a brief, insightful summary of these results.";
                     response.IsSqlValid = true;
                     response.ValidationMessage = validationMessage;
 
-                    // Реальне виконання з SqlExecutor
+                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ SqlExecutor
                     response.ExecutionResult = await sqlExecutor.ExecuteQueryAsync(sql);
                     
-                    // Генерація природної мови відповіді
+                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
                     response.FinalAnswer = await GenerateNaturalLanguageResponseAsync(naturalLanguageQuery, response.ExecutionResult);
                     
-                    // Успіх!
+                    // пїЅпїЅпїЅпїЅ!
                     response.AttemptCount = attempt;
                     response.Errors = errorHistory;
                     response.TotalProcessingTime = DateTime.UtcNow - startTime;
@@ -468,7 +654,7 @@ Generate improved SQL taking into account all previous errors. Return ONLY the S
                     new { role = "system", content = enhancedPrompt },
                     new { role = "user", content = $"Generate corrected SQL for attempt {attempt}: {query}" }
                 },
-                temperature = 0.1 + (attempt * 0.05), // Збільшуємо креативність з кожною спробою
+                temperature = 0.1 + (attempt * 0.05), // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 max_tokens = 600
             };
 
@@ -521,7 +707,7 @@ Generate improved SQL taking into account all previous errors. Return ONLY the S
 
         private (bool IsValid, string Message) ValidateGeneratedSql(string sql)
         {
-            // Базова валідація
+            // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             if (string.IsNullOrWhiteSpace(sql))
                 return (false, "SQL query cannot be empty");
 

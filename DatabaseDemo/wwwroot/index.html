@@ -134,6 +134,30 @@
         .secondary-btn:hover {
             background: linear-gradient(135deg, #545b62, #383d41);
         }
+
+        .agent-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 8px;
+        }
+
+        .agent-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+
+        .reasoning-trace {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
         
         .results {
             margin-top: 30px;
@@ -392,6 +416,12 @@
                 rows="4" 
                 placeholder="e.g., show all users who have more than 5 orders, find customers from Kyiv/Rivne, list all products with low stock"
             ></textarea>
+            
+            <div class="agent-toggle">
+                <input type="checkbox" id="agentMode" name="agentMode">
+                <label for="agentMode" style="margin-bottom: 0; cursor: pointer;">Enable ReAct Agent Mode (Reasoning + Acting)</label>
+            </div>
+
             <div class="button-group">
                 <button onclick="submitQuery()">🚀 Execute Query</button>
                 <button class="secondary-btn" onclick="clearResults()">🧹 Clear</button>
@@ -504,7 +534,12 @@
             
             <div class="result-section">
                 <h3>📊 Query Results</h3>
-                <div id="executionResult"></div>
+                <div id="executionResult">
+                    <table>
+                        <thead id="tableHeader"></thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
             </div>
             
             <div class="result-section">
@@ -666,64 +701,138 @@
         
         async function submitQuery() {
             const query = document.getElementById('queryInput').value.trim();
+            const isAgentMode = document.getElementById('agentMode').checked;
+
+            console.log('=== SUBMIT QUERY DEBUG ===');
+            console.log('Query:', query);
+            console.log('Checkbox element:', document.getElementById('agentMode'));
+            console.log('Checkbox checked:', document.getElementById('agentMode').checked);
+            console.log('isAgentMode variable:', isAgentMode);
+            console.log('==========================');
+
             if (!query) {
                 alert('Please enter a query');
                 return;
             }
             
-            console.log('Submitting query with retry agent:', query);
-            
-            // Show enhanced loading with retry information
+            const resultsDiv = document.getElementById('results');
             const loadingDiv = document.getElementById('loading');
-            loadingDiv.innerHTML = `
-                <div class="spinner"></div>
-                🤖 AI Agent processing your query...<br>
-                <small style="color: #666; margin-top: 10px; display: block;">
-                    Agent will automatically retry up to 4 times if errors occur
-                </small>
-            `;
+            const errorDiv = document.getElementById('error');
+            const reasoningDiv = document.getElementById('reasoningTrace');
+            
+            // Reset UI
+            resultsDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+            if (reasoningDiv) reasoningDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
-            document.getElementById('results').style.display = 'none';
-            hideMessages();
             
             try {
+                const requestPayload = { 
+                    query: query,
+                    isAgentMode: isAgentMode
+                };
+                
+                console.log('Sending request:', requestPayload);
+                
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ query: query })
+                    body: JSON.stringify(requestPayload)
                 });
                 
-                console.log('Chat response status:', response.status);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const data = await response.json();
-                console.log('Chat data with retry info:', data);
                 
-                // Hide loading
-                document.getElementById('loading').style.display = 'none';
+                console.log('Response data:', data);
+                console.log('Is Agent Mode:', data.isAgentMode);
+                console.log('Reasoning Trace:', data.reasoningTrace);
                 
+                loadingDiv.style.display = 'none';
+                resultsDiv.style.display = 'block';
+                
+                // Display Reasoning Trace if available
+                if (data.reasoningTrace && data.reasoningTrace.length > 0) {
+                    let traceDiv = document.getElementById('reasoningTrace');
+                    if (!traceDiv) {
+                        // Create if not exists
+                        traceDiv = document.createElement('div');
+                        traceDiv.id = 'reasoningTrace';
+                        traceDiv.className = 'result-section reasoning-trace';
+                        traceDiv.innerHTML = '<h3>🧠 Agent Reasoning Trace</h3><pre id="traceContent"></pre>';
+                        resultsDiv.insertBefore(traceDiv, resultsDiv.firstChild);
+                    }
+                    traceDiv.style.display = 'block';
+                    document.getElementById('traceContent').textContent = data.reasoningTrace;
+                    console.log('✅ Reasoning trace displayed');
+                } else {
+                    console.log('❌ No reasoning trace in response');
+                }
+
                 if (data.errorMessage) {
-                    showError(`Agent failed: ${data.errorMessage}`);
+                    errorDiv.textContent = data.errorMessage;
+                    errorDiv.style.display = 'block';
                     return;
                 }
                 
-                // Display results with retry information
-                displayResults(data);
+                // Display SQL
+                const sqlElement = document.getElementById('generatedSql');
+                sqlElement.textContent = data.generatedSql || "No SQL generated (Agent Mode)";
                 
-                // Show success message if retry was used
-                if (data.attemptCount > 1) {
-                    showSuccess(`🎯 Smart Agent recovered after ${data.attemptCount} attempts!`);
+                // Display Validation
+                const validationElement = document.getElementById('validationResult');
+                if (data.isSqlValid) {
+                    validationElement.className = 'validation-success';
+                    validationElement.innerHTML = '✅ Query is valid and safe to execute';
+                } else {
+                    validationElement.className = 'validation-error';
+                    validationElement.innerHTML = `❌ Validation failed: ${data.validationMessage}`;
                 }
                 
+                // Display Results
+                const tableHeader = document.getElementById('tableHeader');
+                const tableBody = document.getElementById('tableBody');
+                tableHeader.innerHTML = '';
+                tableBody.innerHTML = '';
+                
+                if (data.executionResult && data.executionResult.length > 0) {
+                    // Create headers
+                    const columns = Object.keys(data.executionResult[0]);
+                    const headerRow = document.createElement('tr');
+                    columns.forEach(col => {
+                        const th = document.createElement('th');
+                        th.textContent = col;
+                        headerRow.appendChild(th);
+                    });
+                    tableHeader.appendChild(headerRow);
+                    
+                    // Create rows
+                    data.executionResult.forEach(row => {
+                        const tr = document.createElement('tr');
+                        columns.forEach(col => {
+                            const td = document.createElement('td');
+                            td.textContent = row[col];
+                            tr.appendChild(td);
+                        });
+                        tableBody.appendChild(tr);
+                    });
+                } else {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 1;
+                    td.textContent = 'No results found';
+                    tr.appendChild(td);
+                    tableBody.appendChild(tr);
+                }
+                
+                // Display Final Answer
+                const answerElement = document.getElementById('finalAnswer');
+                answerElement.textContent = data.finalAnswer;
+                
             } catch (error) {
-                console.error('Query execution error:', error);
-                document.getElementById('loading').style.display = 'none';
-                showError(`Network error: ${error.message}`);
+                loadingDiv.style.display = 'none';
+                errorDiv.textContent = `Error: ${error.message}`;
+                errorDiv.style.display = 'block';
             }
         }
         

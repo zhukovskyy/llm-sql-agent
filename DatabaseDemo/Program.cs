@@ -1,11 +1,19 @@
 using DatabaseDemo.Models;
 using DatabaseDemo.Services;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Configure JSON options for camelCase
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.PropertyNameCaseInsensitive = true;
+});
 
 // Add HTTP client for OpenAI
 builder.Services.AddHttpClient<LlmAgent>();
@@ -71,12 +79,35 @@ app.MapGet("/schema", async (SqlExecutor sqlExecutor, ILogger<Program> logger) =
 .WithName("GetDatabaseSchema")
 .WithOpenApi();
 
-// Chat endpoint with retry logic
-app.MapPost("/chat", async (ChatRequest request, LlmAgent llmAgent, SqlSandbox sqlSandbox, SqlExecutor sqlExecutor, IConfiguration configuration, ILogger<Program> logger) =>
+// Chat endpoint
+app.MapPost("/chat", async (HttpContext context, LlmAgent llmAgent, SqlSandbox sqlSandbox, SqlExecutor sqlExecutor, IConfiguration configuration, ILogger<Program> logger) =>
 {
+    // Read and log the raw request body
+    context.Request.EnableBuffering();
+    var rawBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
+    context.Request.Body.Position = 0;
+    logger.LogInformation("Raw request body: {Body}", rawBody);
+    
+    var request = await context.Request.ReadFromJsonAsync<ChatRequest>();
+    logger.LogInformation("Parsed ChatRequest - Query: {Query}, IsAgentMode: {IsAgentMode}", request?.Query, request?.IsAgentMode);
+    
+    if (request == null)
+    {
+        return Results.BadRequest(new { Error = "Invalid request" });
+    }
+    
+    var response = new ChatResponse
+    {
+        OriginalQuery = request.Query
+    };
+
     try
     {
-        logger.LogInformation("Chat endpoint called with retry agent for query: {Query}", request.Query);
+        logger.LogInformation("=== CHAT REQUEST DEBUG ===");
+        logger.LogInformation("Chat request received. IsAgentMode: {IsAgentMode}, Query: {Query}", request.IsAgentMode, request.Query);
+        logger.LogInformation("Request object type: {Type}", request.GetType().FullName);
+        logger.LogInformation("IsAgentMode property value: {Value}", request.IsAgentMode);
+        logger.LogInformation("========================");
         
         // Update database schema in configuration if not set
         var currentSchema = configuration["Database:Schema"];
@@ -86,28 +117,48 @@ app.MapPost("/chat", async (ChatRequest request, LlmAgent llmAgent, SqlSandbox s
             configuration["Database:Schema"] = schema;
         }
 
-        // Use the new retry agent with real SqlSandbox and SqlExecutor
-        var response = await llmAgent.GenerateSqlWithRetryAsync(request.Query, sqlSandbox, sqlExecutor);
-        
-        logger.LogInformation("Chat endpoint completed. Attempts: {Attempts}, Success: {Success}", 
-            response.AttemptCount, string.IsNullOrEmpty(response.ErrorMessage));
-            
-        return Results.Ok(response);
+        if (request.IsAgentMode)
+        {
+            logger.LogInformation("🤖 Running ReAct agent loop...");
+            response = await llmAgent.RunReActLoopAsync(request.Query);
+            logger.LogInformation("✅ ReAct loop finished. Has reasoning trace: {HasTrace}, Trace length: {Length}", 
+                !string.IsNullOrEmpty(response.ReasoningTrace), 
+                response.ReasoningTrace?.Length ?? 0);
+        }
+        else
+        {
+            // Generate SQL query using LLM
+            response.GeneratedSql = await llmAgent.GenerateSqlQueryAsync(request.Query);
+
+            // Validate SQL query
+            var (isValid, validationMessage) = sqlSandbox.ValidateQuery(response.GeneratedSql);
+            response.IsSqlValid = isValid;
+            response.ValidationMessage = validationMessage;
+
+            if (response.IsSqlValid)
+            {
+                // Execute SQL query
+                response.ExecutionResult = await sqlExecutor.ExecuteQueryAsync(response.GeneratedSql);
+
+                // Generate natural language response
+                response.FinalAnswer = await llmAgent.GenerateNaturalLanguageResponseAsync(
+                    request.Query, response.ExecutionResult);
+            }
+            else
+            {
+                response.FinalAnswer = $"Query validation failed: {response.ValidationMessage}";
+            }
+        }
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Critical error in chat endpoint: {Error}", ex.Message);
-        return Results.Ok(new ChatResponse
-        {
-            OriginalQuery = request.Query,
-            ErrorMessage = $"Critical system error: {ex.Message}",
-            FinalAnswer = "A critical error occurred while processing your request.",
-            AttemptCount = 1,
-            Errors = new List<string> { $"System error: {ex.Message}" }
-        });
+        response.ErrorMessage = ex.Message;
+        response.FinalAnswer = "An error occurred while processing your request.";
     }
+
+    return Results.Ok(response);
 })
-.WithName("ChatWithRetry")
+.WithName("Chat")
 .WithOpenApi();
 
 // Health check endpoint
