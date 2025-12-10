@@ -1,5 +1,9 @@
 # 🤖 LLM SQL Agent
 
+[![Deploy to Production](https://github.com/zhukovskyy/llm-sql-agent/actions/workflows/deploy.yml/badge.svg)](https://github.com/zhukovskyy/llm-sql-agent/actions/workflows/deploy.yml)
+[![.NET](https://img.shields.io/badge/.NET-8.0-purple)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 AI-powered SQL query agent that converts natural language questions into secure SQL queries. Features intelligent retry logic, comprehensive security validation, and real-time database interaction. Built with .NET 8, OpenAI GPT-4, and includes sandbox protection against dangerous operations. Perfect for business analysts and data exploration without SQL knowledge.
 
 ## ✨ Features
@@ -11,6 +15,7 @@ AI-powered SQL query agent that converts natural language questions into secure 
 - 🎯 **Multi-level Query Testing** - From simple SELECT to complex JOINs and aggregations
 - 🌐 **Modern Web UI** - Beautiful, responsive interface with example queries
 - 🔄 **Database Initialization** - One-click setup with test data
+- 🚀 **CI/CD Ready** - Automatic deployment via GitHub Actions
 
 ## 🚀 Quick Start
 
