@@ -64,7 +64,7 @@ Watch the deployment: [Actions Tab](../../actions)
 
 ## 📊 Check Deployment Status
 
-- **Live site:** http://bai.a95.biz:80/
+- **Live site:** [http://bai.a95.biz:80/index.html](http://bai.a95.biz/index.html)
 - **Deployment logs:** [Actions Tab](../../actions)
 - **Last deploy:** ![Deploy Status](https://github.com/zhukovskyy/llm-sql-agent/actions/workflows/deploy.yml/badge.svg)
 
